@@ -1,0 +1,1 @@
+# use streamlit to create browser app for captioning. create noRAG and RAG captions, display ground truth captions, compare metrics for both.
