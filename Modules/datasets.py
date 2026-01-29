@@ -5,14 +5,10 @@ import random
 import pandas as pd
 import numpy as np
 
-import torch
-from torchvision import transforms
 from torch.utils.data import Dataset
-from transformers import CLIPProcessor, BlipProcessor, T5TokenizerFast
 
 from PIL import Image
 from pathlib import Path
-# from Retrieval_module import Retriever
 
 
 # ===============================================================
@@ -28,25 +24,15 @@ class Flickr30KImageDataset(Dataset):
     """
 
     def __init__(self, image_dir: str, captions_dir:str):
-        
         self.image_dir = image_dir
-
-        # Load captions CSV and group captions by image
         df = pd.read_csv(captions_dir)
         self.captions_per_image = df.groupby("image_name")["caption"].apply(list).to_dict()
-
-        # Load images based on the names in the captions dataset
         self.image_names = df['image_name'].unique()
-
-        
-        # self.to_tensor = transforms.ToTensor() 
-        
 
     def __getitem__(self, idx):
         image_name = self.image_names[idx]
         image_path = os.path.join(self.image_dir, image_name)
         image = Image.open(image_path).convert("RGB")
-
         captions = self.captions_per_image[image_name]
 
         return {
@@ -61,52 +47,24 @@ class Flickr30KImageDataset(Dataset):
     
 class CLIPDataCollator:
     def __init__(self, processor, device="cuda"):
-
         self.processor = processor
         self.device = device
 
     def __call__(self, batch):
-        
         images = [b["image"] for b in batch]
         image_names = [b["image_name"] for b in batch]
         captions = [b["captions"] for b in batch]
         
-        # query_images = [b["query_image"] for b in batch]
-        # prompts = [b["prompt"] for b in batch]
-        # targets = [b["target_caption"] for b in batch]
-
         pixel_values = self.processor(
             images=images,
             return_tensors="pt"
         ).pixel_values
 
-        # return {
-        #     "query_pixel_values": pixel_values.to(self.device),
-        #     "retrieved_pixel_values": retrieved_pixel_values.to(self.device),
-        #     "input_ids": inputs.input_ids.to(self.device),
-        #     "attention_mask": inputs.attention_mask.to(self.device),
-        #     "labels": labels.to(self.device),
-        # }
-        
         return {
             "pixel_values": pixel_values.to(self.device),
             "image_names": image_names,
             "captions": captions,
         }
-
-
-def CLIP_collate_fn(batch):
-    collated = {}
-    for key in batch[0]:
-        values = [item[key] for item in batch]
-
-        # If tensor, stack along new batch dimension
-        if isinstance(values[0], torch.Tensor):
-            collated[key] = torch.stack(values)
-        else:
-            # leave lists, strings, or other objects as-is
-            collated[key] = values
-    return collated
 
 # ===============================================================
 # Flickr30K Dataset (Image only)
@@ -153,21 +111,13 @@ class BlipRAGDataset(Dataset):
         
         with open(metadata_path, "r", encoding="utf-8") as f:
             self.metadata = json.load(f)
-
-        # self.metadata_df = pd.DataFrame(metadata)
         
         self.image_base_path = Path(image_dir)
         self.caption_prompt = caption_prompt
         self.num_similar_captions = num_similar_captions
         self.transform = transform
 
-        # assert "image_name" in self.metadata_df.columns
-        # assert "captions" in self.metadata_df.columns
-        # assert "similiar_images" in self.metadata_df.columns
-                    
-
     def __len__(self):
-        # return len(self.metadata_df)
         return len(self.metadata)
 
     def _load_image(self, image_name):
@@ -261,19 +211,9 @@ class BlipDataCollator:
 # Flickr30K Dataset for FusionVLM
 # ===============================================================
 class VLMDataset(Dataset):
-    def __init__(
-        self,
-        metadata_path,
-        image_base_path,
-        ref_image_base_path,
-        retriever,
-        caption_prompt="A Picture of",
-        num_similar_captions=3,
-    ):
-        """
-        image_dir: folder with all images
-        metadata_path: JSON with {idx: {"image_name": str, "captions": List[str], "similar_images": List[int]}}
-        """
+    def __init__(self, metadata_path, image_base_path, ref_image_base_path, retriever,
+                 num_similar_captions=3, caption_prompt="A Picture of"):
+
         self.image_base_path = image_base_path
         self.ref_image_base_path = ref_image_base_path
         self.retriever = retriever
@@ -283,7 +223,6 @@ class VLMDataset(Dataset):
         with open(metadata_path, "r", encoding="utf-8") as f:
             self.metadata = json.load(f)
 
-
     def __len__(self):
         return len(self.metadata)
 
@@ -292,7 +231,6 @@ class VLMDataset(Dataset):
         path = base_path / image_name
         image = Image.open(path).convert("RGB")
         return image
-
 
     def _sample_similar_captions(self, neighbors):
         if len(neighbors) == 0:
@@ -315,21 +253,15 @@ class VLMDataset(Dataset):
 
     def __getitem__(self, idx):
         img_data = self.metadata[str(idx)]
-        
-        # Query image
         query_image = self._load_image(img_data["image_name"], self.image_base_path)
-        # query_image = self.retriever.retrieve_image(idx)
         
-        # Retrieved image (take first similar image)
         retrieved_idx = img_data["similar_images"][0]
         retrieved_image_name = self.retriever.retrieve_image_name(retrieved_idx)
         retrieved_image = self._load_image(retrieved_image_name, self.ref_image_base_path)
-        # retrieved_image = self.retriever.retrieve_image(retrieved_idx)
         
         retrieved_captions = self._sample_similar_captions(img_data["similar_images"])
         prompt = self._build_prompt(retrieved_captions)
         target_caption = max(img_data["captions"], key=len) # Target caption (longest one)
-        
         
         return {
             "query_image": query_image,
@@ -341,9 +273,6 @@ class VLMDataset(Dataset):
 
 class VLMDataCollator:
     def __init__(self, processor, tokenizer, max_seq_len=128, device="cuda"):
-        """
-        processor: a HuggingFace processor with vision & text capabilities
-        """
         self.processor = processor
         self.tokenizer = tokenizer
         self.device = device
@@ -355,8 +284,7 @@ class VLMDataCollator:
         prompts = [b["prompt"] for b in batch]
         targets = [b["target_caption"] for b in batch]
 
-        # Process images (stack query + retrieved along batch dimension)
-        # Some VLMs expect separate keys for query and retrieved images
+        # Process Images
         pixel_values = self.processor(
             images=query_images,
             return_tensors="pt"
@@ -386,7 +314,6 @@ class VLMDataCollator:
             return_tensors="pt"
         ).input_ids
         
-
         # ignore padding tokens in loss
         labels[labels == self.tokenizer.pad_token_id] = -100
 
