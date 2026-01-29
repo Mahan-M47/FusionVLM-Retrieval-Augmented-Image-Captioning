@@ -17,10 +17,10 @@ import os
 from torch.amp import autocast, GradScaler
 from tqdm import tqdm
 
-from torch.utils.data import DataLoader
-from Modules.retrieval_module import Retriever
-from Modules.FusionVLM import FusionVLM
-from Modules.datasets import VLMDataset, VLMDataCollator
+# from torch.utils.data import DataLoader
+# from Modules.retrieval_module import Retriever
+# from Modules.FusionVLM import FusionVLM
+# from Modules.datasets import VLMDataset, VLMDataCollator
 
 
 class FusionBlock(nn.Module):
@@ -122,10 +122,6 @@ class FusionVLM(nn.Module):
     @torch.no_grad()
     def generate(self, query_pixel_values, retrieved_pixel_values, input_ids, attention_mask, 
         max_length=128, num_beams=3, do_sample=False, temperature=1.0, top_p=1.0, **generate_kwargs):
-        """
-        Multimodal text generation using T5 decoder.
-        Fused text+vision embeddings are treated as encoder outputs.
-        """
 
         # ---- Vision ----
         q_vis = self.vision_encoder(query_pixel_values).last_hidden_state

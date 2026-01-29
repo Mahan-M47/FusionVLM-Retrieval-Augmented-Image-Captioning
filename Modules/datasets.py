@@ -211,11 +211,11 @@ class BlipDataCollator:
 # Flickr30K Dataset for FusionVLM
 # ===============================================================
 class VLMDataset(Dataset):
-    def __init__(self, metadata_path, image_base_path, ref_image_base_path, retriever,
+    def __init__(self, image_dir, ref_image_dir, metadata_path, retriever,
                  num_similar_captions=3, caption_prompt="A Picture of"):
 
-        self.image_base_path = image_base_path
-        self.ref_image_base_path = ref_image_base_path
+        self.image_base_dir = Path(image_dir)
+        self.ref_image_dir = Path(ref_image_dir)
         self.retriever = retriever
         self.caption_prompt = caption_prompt
         self.num_similar_captions = num_similar_captions
@@ -253,11 +253,11 @@ class VLMDataset(Dataset):
 
     def __getitem__(self, idx):
         img_data = self.metadata[str(idx)]
-        query_image = self._load_image(img_data["image_name"], self.image_base_path)
+        query_image = self._load_image(img_data["image_name"], self.image_base_dir)
         
         retrieved_idx = img_data["similar_images"][0]
         retrieved_image_name = self.retriever.retrieve_image_name(retrieved_idx)
-        retrieved_image = self._load_image(retrieved_image_name, self.ref_image_base_path)
+        retrieved_image = self._load_image(retrieved_image_name, self.ref_image_dir)
         
         retrieved_captions = self._sample_similar_captions(img_data["similar_images"])
         prompt = self._build_prompt(retrieved_captions)
