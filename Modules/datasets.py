@@ -1,13 +1,23 @@
 
-from torch.utils.data import Dataset
-from torchvision import transforms
-import torch
+import os
+import json
+import random
 import pandas as pd
 import numpy as np
-import os
-from PIL import Image
-from transformers import CLIPProcessor, BlipProcessor
 
+import torch
+from torchvision import transforms
+from torch.utils.data import Dataset
+from transformers import CLIPProcessor, BlipProcessor, T5TokenizerFast
+
+from PIL import Image
+from pathlib import Path
+# from Retrieval_module import Retriever
+
+
+# ===============================================================
+# Flickr30K Dataset for CLIP
+# ===============================================================
 
 class Flickr30KImageDataset(Dataset):
     """
@@ -17,29 +27,19 @@ class Flickr30KImageDataset(Dataset):
     - Multiple captions per image
     """
 
-    def __init__(self, image_dir, captions_dir, processor_name=None, model_name=None, device='cpu'): # Processor: CLIPProcessor, BLIPProcessor
+    def __init__(self, image_dir: str, captions_dir:str):
         
         self.image_dir = image_dir
-        self.device = device
-        
-        if processor_name == 'CLIP':
-            self.processor = CLIPProcessor.from_pretrained(model_name, local_files_only=True, use_fast=True)
-        elif processor_name == 'BLIP':
-            self.processor = BLIPProcessor.from_pretrained(model_name, local_files_only=True, use_fast=True)
-        else:
-            self.processor = None
 
         # Load captions CSV and group captions by image
         df = pd.read_csv(captions_dir)
         self.captions_per_image = df.groupby("image_name")["caption"].apply(list).to_dict()
 
         # Load images based on the names in the captions dataset
-        self.image_names = [
-            img_name for img_name in self.captions_per_image.keys()
-            if os.path.exists(os.path.join(self.image_dir, img_name))
-        ]
+        self.image_names = df['image_name'].unique()
+
         
-        self.to_tensor = transforms.ToTensor() 
+        # self.to_tensor = transforms.ToTensor() 
         
 
     def __getitem__(self, idx):
@@ -47,27 +47,52 @@ class Flickr30KImageDataset(Dataset):
         image_path = os.path.join(self.image_dir, image_name)
         image = Image.open(image_path).convert("RGB")
 
-        # if reprocessing to tensor using CLIPProcessor, returns shape [1, 3, 224, 224], so squeeze to [3, 224, 224]
-        if self.processor is not None:
-            processed = self.processor(images=image, return_tensors="pt")
-            
-            if isinstance(self.processor, CLIPProcessor):
-                image_tensor = processed['pixel_values'].squeeze(0)
-            else:
-                image_tensor = processed['pixel_values']
-        else:
-            image_tensor = self.to_tensor(image)
-
         captions = self.captions_per_image[image_name]
 
         return {
-            "image_tensor": image_tensor.to(self.device), 
+            "image": image, 
             "image_name": image_name,
             "captions": captions
         }
         
     def __len__(self):
         return len(self.image_names)
+    
+    
+class CLIPDataCollator:
+    def __init__(self, processor, device="cuda"):
+
+        self.processor = processor
+        self.device = device
+
+    def __call__(self, batch):
+        
+        images = [b["image"] for b in batch]
+        image_names = [b["image_name"] for b in batch]
+        captions = [b["captions"] for b in batch]
+        
+        # query_images = [b["query_image"] for b in batch]
+        # prompts = [b["prompt"] for b in batch]
+        # targets = [b["target_caption"] for b in batch]
+
+        pixel_values = self.processor(
+            images=images,
+            return_tensors="pt"
+        ).pixel_values
+
+        # return {
+        #     "query_pixel_values": pixel_values.to(self.device),
+        #     "retrieved_pixel_values": retrieved_pixel_values.to(self.device),
+        #     "input_ids": inputs.input_ids.to(self.device),
+        #     "attention_mask": inputs.attention_mask.to(self.device),
+        #     "labels": labels.to(self.device),
+        # }
+        
+        return {
+            "pixel_values": pixel_values.to(self.device),
+            "image_names": image_names,
+            "captions": captions,
+        }
 
 
 def CLIP_collate_fn(batch):
@@ -83,8 +108,9 @@ def CLIP_collate_fn(batch):
             collated[key] = values
     return collated
 
-    
-
+# ===============================================================
+# Flickr30K Dataset (Image only)
+# ===============================================================
 class Flickr30KRawImageDataset(Dataset):
     def __init__(self, image_dir, captions_dir):
         self.image_dir = image_dir
@@ -101,19 +127,10 @@ class Flickr30KRawImageDataset(Dataset):
     def __len__(self):
         return len(self.image_names)
     
-    
 
-
-import json
-import random
-from pathlib import Path
-from PIL import Image
-
-import pandas as pd
-import torch
-from torch.utils.data import Dataset
-# from Retrieval_module import Retriever
-
+# ===============================================================
+# Flickr30K Dataset for BLIP (Fine-tune with RAG)
+# ===============================================================
 class BlipRAGDataset(Dataset):
     def __init__(
         self,
@@ -201,7 +218,6 @@ class BlipRAGDataset(Dataset):
         }
 
 
-
 class BlipDataCollator:
     def __init__(self, processor, max_seq_len=128, device="cuda"):
         self.processor = processor
@@ -239,3 +255,145 @@ class BlipDataCollator:
 
         # return {k: v.to(self.device) for k, v in inputs.items()}
         return {k: v for k, v in inputs.items()}
+
+
+# ===============================================================
+# Flickr30K Dataset for FusionVLM
+# ===============================================================
+class VLMDataset(Dataset):
+    def __init__(
+        self,
+        metadata_path,
+        image_base_path,
+        ref_image_base_path,
+        retriever,
+        caption_prompt="A Picture of",
+        num_similar_captions=3,
+    ):
+        """
+        image_dir: folder with all images
+        metadata_path: JSON with {idx: {"image_name": str, "captions": List[str], "similar_images": List[int]}}
+        """
+        self.image_base_path = image_base_path
+        self.ref_image_base_path = ref_image_base_path
+        self.retriever = retriever
+        self.caption_prompt = caption_prompt
+        self.num_similar_captions = num_similar_captions
+
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            self.metadata = json.load(f)
+
+
+    def __len__(self):
+        return len(self.metadata)
+
+
+    def _load_image(self, image_name, base_path):
+        path = base_path / image_name
+        image = Image.open(path).convert("RGB")
+        return image
+
+
+    def _sample_similar_captions(self, neighbors):
+        if len(neighbors) == 0:
+            return []
+
+        k = min(self.num_similar_captions, len(neighbors))
+        sampled = random.sample(neighbors, k)
+        captions = []
+        for idx in sampled:
+            caps = self.retriever.retrieve_captions(idx)
+            captions.append(random.choice(caps))
+        return captions
+
+    def _build_prompt(self, similar_captions):
+        if len(similar_captions) == 0:
+            return self.caption_prompt
+        context = "\n".join(f"- {c}" for c in similar_captions)
+        return f"Similar images are described as:\n{context}\n\n{self.caption_prompt}"
+
+
+    def __getitem__(self, idx):
+        img_data = self.metadata[str(idx)]
+        
+        # Query image
+        query_image = self._load_image(img_data["image_name"], self.image_base_path)
+        # query_image = self.retriever.retrieve_image(idx)
+        
+        # Retrieved image (take first similar image)
+        retrieved_idx = img_data["similar_images"][0]
+        retrieved_image_name = self.retriever.retrieve_image_name(retrieved_idx)
+        retrieved_image = self._load_image(retrieved_image_name, self.ref_image_base_path)
+        # retrieved_image = self.retriever.retrieve_image(retrieved_idx)
+        
+        retrieved_captions = self._sample_similar_captions(img_data["similar_images"])
+        prompt = self._build_prompt(retrieved_captions)
+        target_caption = max(img_data["captions"], key=len) # Target caption (longest one)
+        
+        
+        return {
+            "query_image": query_image,
+            "retrieved_image": retrieved_image,
+            "prompt": prompt,
+            "target_caption": target_caption,
+        }
+
+
+class VLMDataCollator:
+    def __init__(self, processor, tokenizer, max_seq_len=128, device="cuda"):
+        """
+        processor: a HuggingFace processor with vision & text capabilities
+        """
+        self.processor = processor
+        self.tokenizer = tokenizer
+        self.device = device
+        self.max_seq_len = max_seq_len
+
+    def __call__(self, batch):
+        query_images = [b["query_image"] for b in batch]
+        retrieved_images = [b["retrieved_image"] for b in batch]
+        prompts = [b["prompt"] for b in batch]
+        targets = [b["target_caption"] for b in batch]
+
+        # Process images (stack query + retrieved along batch dimension)
+        # Some VLMs expect separate keys for query and retrieved images
+        pixel_values = self.processor(
+            images=query_images,
+            return_tensors="pt"
+        ).pixel_values
+
+        retrieved_pixel_values = self.processor(
+            images=retrieved_images,
+            return_tensors="pt"
+        ).pixel_values
+
+        # Process text prompts
+        inputs = self.tokenizer(
+            prompts,
+            padding="longest",
+            padding_side='right',
+            truncation=True,
+            max_length=self.max_seq_len,
+            return_tensors="pt"
+        )
+
+        labels = self.tokenizer(
+            targets,
+            padding="longest",
+            padding_side='right',
+            truncation=True,
+            max_length=self.max_seq_len,
+            return_tensors="pt"
+        ).input_ids
+        
+
+        # ignore padding tokens in loss
+        labels[labels == self.tokenizer.pad_token_id] = -100
+
+        return {
+            "query_pixel_values": pixel_values.to(self.device),
+            "retrieved_pixel_values": retrieved_pixel_values.to(self.device),
+            "input_ids": inputs.input_ids.to(self.device),
+            "attention_mask": inputs.attention_mask.to(self.device),
+            "labels": labels.to(self.device),
+        }
