@@ -268,6 +268,7 @@ class VLMDataset(Dataset):
             "retrieved_image": retrieved_image,
             "prompt": prompt,
             "target_caption": target_caption,
+            "all_captions": img_data["captions"]
         }
 
 
@@ -283,6 +284,7 @@ class VLMDataCollator:
         retrieved_images = [b["retrieved_image"] for b in batch]
         prompts = [b["prompt"] for b in batch]
         targets = [b["target_caption"] for b in batch]
+        all_captions = [b["all_captions"] for b in batch]
 
         # Process Images
         pixel_values = self.processor(
@@ -323,4 +325,5 @@ class VLMDataCollator:
             "input_ids": inputs.input_ids.to(self.device),
             "attention_mask": inputs.attention_mask.to(self.device),
             "labels": labels.to(self.device),
+            "all_captions": all_captions
         }
