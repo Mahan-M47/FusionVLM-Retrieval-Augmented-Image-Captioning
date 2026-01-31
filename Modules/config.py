@@ -2,6 +2,8 @@
 import torch
 from peft import LoraConfig, get_peft_model, TaskType
 
+SEED = 13
+
 CAPTIONS_PATH = "dataset/captions.csv"
 IMAGE_ROOT = "dataset/flickr30k_images"
 
@@ -22,7 +24,7 @@ ViT_MODEL_NAME = "google/vit-base-patch16-224"
 T5_MODEL_NAME = "t5-base"
 
 VLM_CHECKPOINT_DIR = "FusionVLM"
-FUSION_BLOCKS = 2
+FUSION_BLOCKS = 4
 FUSION_HEADS = 8
 FUSION_DIM = 768
 
