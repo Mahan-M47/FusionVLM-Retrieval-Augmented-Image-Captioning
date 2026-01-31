@@ -268,7 +268,8 @@ class VLMDataset(Dataset):
             "retrieved_image": retrieved_image,
             "prompt": self.label_prompt + prompt,
             "target_caption": target_caption,
-            "all_captions": [self.label_prompt + caption for caption in img_data["captions"]]
+            "all_captions": img_data["captions"]
+            # "all_captions": [self.label_prompt + caption for caption in img_data["captions"]]
         }
 
 

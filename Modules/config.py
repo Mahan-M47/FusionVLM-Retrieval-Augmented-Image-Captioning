@@ -18,11 +18,13 @@ TEST_METADATA_PATH = "test_metadata.json"
 
 CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 BLIP_MODEL_NAME = "Salesforce/blip-image-captioning-base"
-T5_MODEL_NAME = "t5-base"
 ViT_MODEL_NAME = "google/vit-base-patch16-224"
+T5_MODEL_NAME = "t5-base"
 
 VLM_CHECKPOINT_DIR = "FusionVLM"
 FUSION_BLOCKS = 2
+FUSION_HEADS = 8
+FUSION_DIM = 768
 
 T5_DECODER_LORA_CONFIG = LoraConfig(
         r=32,
@@ -43,8 +45,8 @@ T5_DECODER_LORA_CONFIG = LoraConfig(
     lora_dropout=0.1,
     bias="none",
     modules_to_save=["lm_head"],
-    # task_type=TaskType.SEQ_2_SEQ_LM,
-    task_type=TaskType.CAUSAL_LM
+    task_type=TaskType.SEQ_2_SEQ_LM,
+    # task_type=TaskType.CAUSAL_LM  # this one worked 
 )
 
 T5_ENCODER_LORA_CONFIG = LoraConfig(
@@ -61,19 +63,6 @@ T5_ENCODER_LORA_CONFIG = LoraConfig(
     task_type=TaskType.FEATURE_EXTRACTION
 )
 
-# CLIP_LORA_CONFIG = LoraConfig(
-#     r=16,                      
-#     lora_alpha=32,
-#     target_modules=[
-#         "self_attn.q_proj",
-#         "self_attn.v_proj",
-#         "self_attn.v_proj",
-#         "self_attn.out_proj"
-#     ],
-#     lora_dropout=0.05,
-#     bias="none",
-#     task_type=TaskType.FEATURE_EXTRACTION
-# )
 CLIP_LORA_CONFIG = LoraConfig(
     r=16,
     lora_alpha=32,
