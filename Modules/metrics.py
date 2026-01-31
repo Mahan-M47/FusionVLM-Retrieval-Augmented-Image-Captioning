@@ -82,8 +82,8 @@ def compute_cider(preds, refs):
 # Master evaluation
 # -----------------------
 def setup_nltk():
-    nltk.download('wordnet')
-    nltk.download('omw-1.4')  # recommended for newer WordNet versions
+    nltk.download('wordnet', quiet=True)
+    nltk.download('omw-1.4', quiet=True)  # recommended for newer WordNet versions
     
 def evaluate_captioning(preds, refs):
     assert len(preds) == len(refs)

@@ -212,12 +212,12 @@ class BlipDataCollator:
 # ===============================================================
 class VLMDataset(Dataset):
     def __init__(self, image_dir, ref_image_dir, metadata_path, retriever,
-                 num_similar_captions=3, caption_prompt="A Picture of"):
+                 num_similar_captions=3, label_prompt="A picture of "):
 
         self.image_base_dir = Path(image_dir)
         self.ref_image_dir = Path(ref_image_dir)
         self.retriever = retriever
-        self.caption_prompt = caption_prompt
+        self.label_prompt = label_prompt
         self.num_similar_captions = num_similar_captions
 
         with open(metadata_path, "r", encoding="utf-8") as f:
@@ -246,9 +246,9 @@ class VLMDataset(Dataset):
 
     def _build_prompt(self, similar_captions):
         if len(similar_captions) == 0:
-            return self.caption_prompt
-        context = "\n".join(f"- {c}" for c in similar_captions)
-        return f"Similar images are described as:\n{context}\n\n{self.caption_prompt}"
+            return ""
+        context = " ".join(f"{c}" for c in similar_captions)
+        return f"Similar images are described as:\n{context}"
 
 
     def __getitem__(self, idx):
@@ -266,9 +266,9 @@ class VLMDataset(Dataset):
         return {
             "query_image": query_image,
             "retrieved_image": retrieved_image,
-            "prompt": prompt,
+            "prompt": self.label_prompt + prompt,
             "target_caption": target_caption,
-            "all_captions": img_data["captions"]
+            "all_captions": [self.label_prompt + caption for caption in img_data["captions"]]
         }
 
 

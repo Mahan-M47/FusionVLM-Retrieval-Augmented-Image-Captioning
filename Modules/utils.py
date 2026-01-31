@@ -2,6 +2,7 @@
 
 import torch
 import torch.nn as nn
+from peft import LoraConfig, get_peft_model
 
 def print_model_param_stats(model: nn.Module):
     total_params = 0
@@ -25,3 +26,8 @@ def print_model_param_stats(model: nn.Module):
 
     print("-" * 80)
     print(f"{'TOTAL':40} {total_params:12,} {trainable_params:12,} {frozen_params:12,}")
+    
+
+def add_dict(main, new):
+    for k, v in new.items():
+        main.setdefault(k, []).append(v)
