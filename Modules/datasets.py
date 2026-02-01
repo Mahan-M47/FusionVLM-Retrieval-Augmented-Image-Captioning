@@ -12,10 +12,10 @@ from pathlib import Path
 
 
 # ===============================================================
-# Flickr30K Dataset for CLIP
+# Flickr30K Dataset for CLIP (Image + Captions)
 # ===============================================================
 
-class Flickr30KImageDataset(Dataset):
+class CLIPImageDataset(Dataset):
     """
     Dataset notes:
     - Images are named as integers with .jpg extension (e.g. 14121.jpg)
@@ -45,7 +45,7 @@ class Flickr30KImageDataset(Dataset):
         return len(self.image_names)
     
     
-class CLIPDataCollator:
+class CLIPImageDataCollator:
     def __init__(self, processor, device="cuda"):
         self.processor = processor
         self.device = device
@@ -67,25 +67,47 @@ class CLIPDataCollator:
         }
 
 # ===============================================================
-# Flickr30K Dataset (Image only)
+# Flickr30K Dataset for CLIP (Captions only)
 # ===============================================================
-class Flickr30KRawImageDataset(Dataset):
-    def __init__(self, image_dir, captions_dir):
-        self.image_dir = image_dir
-        
-        df = pd.read_csv(captions_dir)
-        self.image_names = df['image_name'].unique()
+class CLIPCaptionDataset(Dataset):
+    def __init__(self, captions_dir:str):
+        self.df = pd.read_csv(captions_dir)
 
     def __getitem__(self, idx):
-        image_name = self.image_names[idx]
-        image_path = os.path.join(self.image_dir, image_name)
-        image = Image.open(image_path).convert("RGB")
-        return np.array(image)
+        caption_data = self.df.iloc[idx]
+
+        return {
+            "image_name": caption_data['image_name'], 
+            "caption": caption_data['caption']
+        }
         
     def __len__(self):
-        return len(self.image_names)
+        return len(self.df)
     
+    
+class CLIPCaptionDataCollator:
+    def __init__(self, tokenizer, device="cuda"):
+        self.tokenizer = tokenizer
+        self.device = device
 
+    def __call__(self, batch):
+        image_names = [b["image_name"] for b in batch]
+        captions = [b["caption"] for b in batch]
+        
+        tokenized_captions = self.tokenizer(captions,
+                                  padding="longest",
+                                  padding_side='right',
+                                  truncation=True,
+                                  max_length=77,
+                                  return_tensors="pt")
+        
+        return {
+            "input_ids": tokenized_captions.input_ids.to(self.device),
+            "attention_mask": tokenized_captions.attention_mask.to(self.device),
+            "image_names": image_names,
+            "captions": captions,
+        }
+  
 # ===============================================================
 # Flickr30K Dataset for BLIP (Fine-tune with RAG)
 # ===============================================================
@@ -216,7 +238,9 @@ class VLMDataset(Dataset):
 
         self.image_base_dir = Path(image_dir)
         self.ref_image_dir = Path(ref_image_dir)
+        
         self.retriever = retriever
+        
         self.label_prompt = label_prompt
         self.num_similar_captions = num_similar_captions
 
@@ -231,24 +255,13 @@ class VLMDataset(Dataset):
         path = base_path / image_name
         image = Image.open(path).convert("RGB")
         return image
+    
 
-    def _sample_similar_captions(self, neighbors):
-        if len(neighbors) == 0:
-            return []
-
-        k = min(self.num_similar_captions, len(neighbors))
-        sampled = random.sample(neighbors, k)
-        captions = []
-        for idx in sampled:
-            caps = self.retriever.retrieve_captions(idx)
-            captions.append(random.choice(caps))
-        return captions
-
-    def _build_prompt(self, similar_captions):
-        if len(similar_captions) == 0:
-            return ""
-        context = " ".join(f"{c}" for c in similar_captions)
-        return f"Similar images are described as:\n{context}"
+    def _build_context(self, idx):
+        captions = self.retriever.retrieve_from_metadata(idx, key='similar_captions')
+        k = min(len(captions),  self.num_similar_captions)
+        context = ' '.join(captions[:k])
+        return f"Similar images are described as: \n {context}"
 
 
     def __getitem__(self, idx):
@@ -256,20 +269,19 @@ class VLMDataset(Dataset):
         query_image = self._load_image(img_data["image_name"], self.image_base_dir)
         
         retrieved_idx = img_data["similar_images"][0]
-        retrieved_image_name = self.retriever.retrieve_image_name(retrieved_idx)
+        retrieved_image_name = self.retriever.retrieve_from_metadata(retrieved_idx, key='image_name')
         retrieved_image = self._load_image(retrieved_image_name, self.ref_image_dir)
         
-        retrieved_captions = self._sample_similar_captions(img_data["similar_images"])
-        prompt = self._build_prompt(retrieved_captions)
+        context = self._build_context(idx)
         target_caption = max(img_data["captions"], key=len) # Target caption (longest one)
         
         return {
             "query_image": query_image,
             "retrieved_image": retrieved_image,
-            "prompt": self.label_prompt + prompt,
-            "target_caption": target_caption,
-            "all_captions": img_data["captions"]
-            # "all_captions": [self.label_prompt + caption for caption in img_data["captions"]]
+            "context": context,
+            "target_caption": self.label_prompt + target_caption,
+            "all_captions": [self.label_prompt + caption for caption in img_data["captions"]]
+            # "all_captions": img_data["captions"]
         }
 
 
@@ -288,7 +300,7 @@ class VLMDataCollator:
     def __call__(self, batch):
         query_images = [b.get("query_image") for b in batch]
         retrieved_images = [b.get("retrieved_image") for b in batch]
-        prompts = [b.get("prompt") for b in batch]
+        prompts = [b.get("context") for b in batch]
         targets = [b.get("target_caption") for b in batch]
         all_captions = [b.get("all_captions") for b in batch]
 

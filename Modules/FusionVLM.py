@@ -188,7 +188,7 @@ class FusionVLM(nn.Module):
 
         # Text Decoder
         self.text_decoder = T5ForConditionalGeneration.from_pretrained(T5_text_decoder_name, local_files_only=use_local_files)
-        self.tokenizer = T5TokenizerFast.from_pretrained(T5_text_decoder_name)
+        self.tokenizer = T5TokenizerFast.from_pretrained(T5_text_decoder_name, local_files_only=use_local_files)
         self.text_decoder.config.decoder_start_token_id = self.tokenizer.pad_token_id
 
         # Tokenize generate prompt

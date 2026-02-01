@@ -17,6 +17,7 @@ TEST_CAPTIONS_PATH = "dataset/captions-test.csv"
 FAISS_IMAGE_PATH = "flickr30k_clip_images.faiss"
 FAISS_CAPTION_PATH = "flickr30k_clip_captions.faiss"
 
+CAPTION_METADATA_PATH = "caption_metadata.json"
 TRAIN_METADATA_PATH = "train_metadata.json"
 TEST_METADATA_PATH = "test_metadata.json"
 

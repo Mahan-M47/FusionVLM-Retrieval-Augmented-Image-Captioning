@@ -9,8 +9,6 @@ class Embedder:
         self.model_name = model_name
         self.device = device
 
-        self.CLIP_processor = CLIPImageProcessorFast.from_pretrained(self.model_name, local_files_only=use_local_files)
-        self.CLIP_tokenizer = CLIPTokenizer.from_pretrained(self.model_name, local_files_only=use_local_files)
         self.CLIP_model = CLIPModel.from_pretrained(self.model_name, local_files_only=use_local_files).to(self.device)
 
         # Freeze CLIP parameters
@@ -21,13 +19,13 @@ class Embedder:
         self.embedding_dim = self.CLIP_model.visual_projection.out_features
         
         
-    def get_image_embedding(self, query, return_tensor=False):
-        if len(query.shape) == 3:
-            query = query.unsqueeze(0)
+    def get_image_embedding(self, pixel_values, return_tensor=False):
+        if len(pixel_values.shape) == 3:
+            pixel_values = pixel_values.unsqueeze(0)
         
-        query.to(self.device)
+        pixel_values.to(self.device)
         with torch.no_grad():
-            embeddings = self.CLIP_model.get_image_features(query)
+            embeddings = self.CLIP_model.get_image_features(pixel_values)
             embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
         
         if return_tensor:
@@ -36,18 +34,17 @@ class Embedder:
             return embeddings.cpu().numpy().astype(np.float32)
         
         
-    def get_text_embedding(self, query, return_tensor=False):
+    def get_text_embedding(self, input_ids, attention_mask, return_tensor=False):
+        if len(input_ids.shape) == 3:
+            input_ids = input_ids.unsqueeze(0)
+            
+        if len(attention_mask.shape) == 3:
+            attention_mask = attention_mask.unsqueeze(0)
         
-        query = self.CLIP_tokenizer(query,
-                                    padding="longest",
-                                    padding_side='right',
-                                    truncation=True,
-                                    max_length=77,
-                                    return_tensors="pt")
-        
-        query.to(self.device)
+        input_ids.to(self.device)
+        attention_mask.to(self.device)
         with torch.no_grad():
-            embeddings = self.CLIP_model.get_text_features(**query)
+            embeddings = self.CLIP_model.get_text_features(input_ids=input_ids, attention_mask=attention_mask)
             embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
             
         if return_tensor:
