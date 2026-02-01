@@ -17,22 +17,22 @@ def evaluate_epoch(model, loader, tokenizer):
 
     with torch.no_grad():
         for batch in loader:
-            gt_captions = batch["all_captions"]  # List[List[str]]
+            gt_captions = batch.get("all_captions")  # List[List[str]]
             
             outputs = model(
-            query_pixel_values=batch["query_pixel_values"],
-            retrieved_pixel_values=batch["retrieved_pixel_values"],
-            input_ids=batch["input_ids"],
-            attention_mask=batch["attention_mask"],
-            labels=batch["labels"]
+            query_pixel_values=batch.get("query_pixel_values"),
+            retrieved_pixel_values=batch.get("retrieved_pixel_values"),
+            input_ids=batch.get("input_ids"),
+            attention_mask=batch.get("attention_mask"),
+            labels=batch.get("labels")
             )
             loss += outputs.loss.item()
             
             generated_ids = model.generate(
-                    query_pixel_values=batch["query_pixel_values"],
-                    retrieved_pixel_values=batch["retrieved_pixel_values"],
-                    input_ids=batch["input_ids"],
-                    attention_mask=batch["attention_mask"],
+                    query_pixel_values=batch.get("query_pixel_values"),
+                    retrieved_pixel_values=batch.get("retrieved_pixel_values"),
+                    input_ids=batch.get("input_ids"),
+                    attention_mask=batch.get("attention_mask"),
                     max_length=64,
                     # num_beams=3
             )
@@ -55,12 +55,12 @@ def train_epoch(model, loader, optimizer, epoch):
         optimizer.zero_grad()
 
         outputs = model(
-            query_pixel_values=batch["query_pixel_values"],
-            retrieved_pixel_values=batch["retrieved_pixel_values"],
-            input_ids=batch["input_ids"],
-            attention_mask=batch["attention_mask"],
-            labels=batch["labels"]
-        )
+            query_pixel_values=batch.get("query_pixel_values"),
+            retrieved_pixel_values=batch.get("retrieved_pixel_values"),
+            input_ids=batch.get("input_ids"),
+            attention_mask=batch.get("attention_mask"),
+            labels=batch.get("labels")
+            )
         loss = outputs.loss
 
         loss.backward()

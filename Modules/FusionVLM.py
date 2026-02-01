@@ -4,20 +4,20 @@ import torch.nn as nn
 from transformers import (
     CLIPVisionModel,
     CLIPVisionConfig,
-    ViTModel,
+    CLIPTextModel,
+    CLIPTextConfig,
+    CLIPProcessor,
+    CLIPTokenizerFast,
     T5EncoderModel,
     T5ForConditionalGeneration,
-    CLIPProcessor,
     T5TokenizerFast,
     T5Config
 )
 
 from transformers.modeling_outputs import BaseModelOutput
 
-from peft import LoraConfig, TaskType, get_peft_model, get_peft_model_state_dict
+from peft import LoraConfig, get_peft_model, get_peft_model_state_dict
 from pathlib import Path
-from torch.amp import autocast, GradScaler
-from tqdm import tqdm
 import os 
 
 from Modules.config import (CLIP_MODEL_NAME, T5_MODEL_NAME, FUSION_BLOCKS, FUSION_DIM,
@@ -140,8 +140,10 @@ class BidirectionalFusionBlock(nn.Module):
 
 
 class FusionVLM(nn.Module):
-    def __init__(self, vision_encoder_name: str, text_encoder_name: str, T5_text_decoder_name: str, bidirectional_fusion=True, fusion_dim=FUSION_DIM,
-                 num_fusion_blocks=FUSION_BLOCKS, num_fusion_heads=FUSION_HEADS, prompt='A picture of ', use_local_files=True):
+    def __init__(self, vision_encoder_name: str, text_encoder_name: str, T5_text_decoder_name: str,
+                 bidirectional_fusion=True, fusion_dim=FUSION_DIM, num_fusion_blocks=FUSION_BLOCKS,
+                 num_fusion_heads=FUSION_HEADS, prompt='A picture of ', use_local_files=False):
+        
         super().__init__()
         
         config = T5Config.from_pretrained(T5_text_decoder_name)
@@ -157,8 +159,14 @@ class FusionVLM(nn.Module):
         self.vision_dim = self.vision_encoder.config.hidden_size
 
         # Text encoder
-        self.text_encoder = T5EncoderModel.from_pretrained(text_encoder_name, local_files_only=use_local_files)
-        self.text_dim = self.text_encoder.config.d_model
+        if text_encoder_name[:2] == 't5':
+            self.text_encoder = T5EncoderModel.from_pretrained(text_encoder_name, local_files_only=use_local_files)
+            self.text_dim = self.text_encoder.config.d_model
+        else:
+            text_config = CLIPTextConfig()
+            self.text_encoder = CLIPTextModel.from_pretrained(text_encoder_name, config=text_config, local_files_only=use_local_files)
+            self.text_dim = self.text_encoder.config.hidden_size
+            
         
         # Project vision,text → Fusion space
         self.vision_proj = nn.Linear(self.vision_dim, self.fusion_dim)
@@ -175,7 +183,7 @@ class FusionVLM(nn.Module):
             )
         
         # Post fusion projection
-        self.post_fusion_ln = nn.LayerNorm(self.text_dim)
+        self.post_fusion_ln = nn.LayerNorm(self.fusion_dim)
         self.fusion_proj = nn.Linear(self.fusion_dim, self.text_decoder_dim)
 
         # Text Decoder

@@ -274,18 +274,23 @@ class VLMDataset(Dataset):
 
 
 class VLMDataCollator:
-    def __init__(self, processor, tokenizer, max_seq_len=128, device="cuda"):
+    def __init__(self, processor, tokenizer, label_tokenizer=None, max_seq_len=128, device="cuda"):
         self.processor = processor
         self.tokenizer = tokenizer
-        self.device = device
+        
+        self.label_tokenizer = label_tokenizer
+        if not self.label_tokenizer:
+            self.label_tokenizer = tokenizer
+            
         self.max_seq_len = max_seq_len
+        self.device = device
 
     def __call__(self, batch):
-        query_images = [b["query_image"] for b in batch]
-        retrieved_images = [b["retrieved_image"] for b in batch]
-        prompts = [b["prompt"] for b in batch]
-        targets = [b["target_caption"] for b in batch]
-        all_captions = [b["all_captions"] for b in batch]
+        query_images = [b.get("query_image") for b in batch]
+        retrieved_images = [b.get("retrieved_image") for b in batch]
+        prompts = [b.get("prompt") for b in batch]
+        targets = [b.get("target_caption") for b in batch]
+        all_captions = [b.get("all_captions") for b in batch]
 
         # Process Images
         pixel_values = self.processor(
@@ -308,7 +313,7 @@ class VLMDataCollator:
             return_tensors="pt"
         )
 
-        labels = self.tokenizer(
+        labels = self.label_tokenizer(
             targets,
             padding="longest",
             padding_side='right',
