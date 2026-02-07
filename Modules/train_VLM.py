@@ -34,12 +34,16 @@ def evaluate_epoch(model, loader, tokenizer):
                     input_ids=batch.get("input_ids"),
                     attention_mask=batch.get("attention_mask"),
                     max_length=64,
-                    # num_beams=3
+                    do_sample=False,
+                    early_stopping=True,
+                    length_penalty=1.2, # longer outputs 
+                    repetition_penalty=1.2 # penalize repeats
             )
-
+            
             decoded = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
             preds.extend(decoded)
             refs.extend(gt_captions)
+            # refs.extend([[max(caption, key=len)] for caption in gt_captions])
             
     loss = loss / len(loader)
     print(f"Val Loss: {loss:.8f}")
@@ -79,7 +83,7 @@ def train_epoch(model, loader, optimizer, epoch):
 def train_and_evaluate_model(model, train_loader, optimizer, num_epochs, val_loader=None, tokenizer=None, save_interval=5):    
     history = {'train_loss': [],
                'val_loss': []
-               }
+    }
     
     for epoch in range(num_epochs):
         epoch_loss = train_epoch(model, train_loader, optimizer, epoch)

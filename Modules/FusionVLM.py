@@ -16,7 +16,7 @@ from transformers import (
 
 from transformers.modeling_outputs import BaseModelOutput
 
-from peft import LoraConfig, get_peft_model, get_peft_model_state_dict
+from peft import LoraConfig, get_peft_model, PeftModel, get_peft_model_state_dict 
 from pathlib import Path
 import os 
 
@@ -146,7 +146,7 @@ class FusionVLM(nn.Module):
         
         super().__init__()
         
-        config = T5Config.from_pretrained(T5_text_decoder_name)
+        config = T5Config.from_pretrained(T5_text_decoder_name, local_files_only=use_local_files)
         self.text_decoder_dim = config.d_model
 
         self.fusion_dim = fusion_dim
@@ -265,24 +265,25 @@ class FusionVLM(nn.Module):
 
         return generated_ids
     
-    
 
-def apply_lora_config(fusionVLM: FusionVLM, T5_decoder_config=T5_DECODER_LORA_CONFIG,
-                      T5_encoder_config=T5_ENCODER_LORA_CONFIG, vision_encoder_config=CLIP_LORA_CONFIG):
+def freeze_encoders(model: FusionVLM):
     # Freeze encoders
     def freeze_module(module: torch.nn.Module):
         for p in module.parameters():
             p.requires_grad = False
             
-    freeze_module(fusionVLM.vision_encoder)
-    freeze_module(fusionVLM.text_encoder)
+    freeze_module(model.vision_encoder)
+    freeze_module(model.text_encoder)
+    return model
 
-    # Apply LoRA 
+
+def apply_lora_config(fusionVLM: FusionVLM, T5_decoder_config=T5_DECODER_LORA_CONFIG,
+                      T5_encoder_config=T5_ENCODER_LORA_CONFIG, vision_encoder_config=CLIP_LORA_CONFIG):
+    
     # fusionVLM.vision_encoder = get_peft_model(fusionVLM.vision_encoder, vision_encoder_config)
     # fusionVLM.text_encoder = get_peft_model(fusionVLM.text_encoder, T5_encoder_config)
     fusionVLM.text_decoder = get_peft_model(fusionVLM.text_decoder, T5_decoder_config)
-
-
+    
     return fusionVLM
 
 
@@ -294,6 +295,7 @@ def create_default_FusionVLM():
                     use_local_files=True
                     )
     
+    model = freeze_encoders(model)
     return apply_lora_config(model)
  
 
@@ -301,25 +303,22 @@ def save_FusionVLM(model: FusionVLM, checkpoint_name: str, save_dir=VLM_CHECKPOI
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1) Save LoRA adapters ONLY (decoder)
-    lora_state = get_peft_model_state_dict(model.text_decoder)
-    torch.save(lora_state, save_dir / f"DecoderLoRA_{checkpoint_name}.pt")
-
-    # 2) Save all other trainable (non-frozen, non-LoRA) weights
-    fusion_state = {}
-    for name, param in model.named_parameters():
-        if not param.requires_grad:
-            continue
-        if name.startswith("text_decoder"):
-            continue  # LoRA already handled
-        fusion_state[name] = param.detach().cpu()
-
-    torch.save(fusion_state, save_dir / f"FusionVLM_{checkpoint_name}.pt")
-
-
+    # 1) save LoRA adapters
+    # model.vision_encoder.save_pretrained(save_dir / checkpoint_name / "lora_vision_encoder")
+    # model.text_encoder.save_pretrained(save_dir / checkpoint_name / "lora_text_encoder")
+    model.text_decoder.save_pretrained(save_dir / checkpoint_name / "lora_text_decoder")
+    
+    # 2) save all other trainable (non-LoRA) params
+    fusion_state = {
+        name: param.detach().cpu()
+        for name, param in model.named_parameters()
+        if param.requires_grad and not name.startswith(("text_decoder", "text_encoder", "vision_encoder"))
+    }
+    torch.save(fusion_state, save_dir / checkpoint_name / "fusion.pt")
+    
 
 def load_FusionVLM(checkpoint_name: str, save_dir: str, vision_encoder_name: str,
-                   text_encoder_name: str, text_decoder_name: str, lora_config: LoraConfig,
+                   text_encoder_name: str, text_decoder_name: str,
                    num_fusion_blocks=FUSION_BLOCKS, use_local_files=True):
     
     save_dir = Path(save_dir)
@@ -333,26 +332,39 @@ def load_FusionVLM(checkpoint_name: str, save_dir: str, vision_encoder_name: str
     use_local_files=use_local_files
     )
     
-    # apply LoRA
-    model = apply_lora_config(model, lora_config)
+    # Load LoRA weights
+    # model.vision_encoder = PeftModel.from_pretrained(
+    #     model.vision_encoder, 
+    #     save_dir / checkpoint_name / "lora_vision_encoder",
+    #     is_trainable=True
+    # )
     
-    # Load LoRA adapter weights
-    lora_state = torch.load(save_dir / f"DecoderLoRA_{checkpoint_name}.pt", map_location="cpu")
-    model.text_decoder.load_state_dict(lora_state, strict=False)
+    # model.text_encoder = PeftModel.from_pretrained(
+    #     model.text_encoder, 
+    #     save_dir / checkpoint_name / "lora_text_encoder",
+    #     is_trainable=True
+    # )
+    
+    model.text_decoder = PeftModel.from_pretrained(
+        model.text_decoder, 
+        save_dir / checkpoint_name / "lora_text_decoder",
+        is_trainable=True
+    )
 
     # Load fusion block weights
-    fusion_state = torch.load(save_dir / f"FusionVLM_{checkpoint_name}.pt", map_location="cpu")
+    fusion_state = torch.load(save_dir / checkpoint_name / 'fusion.pt', map_location="cpu")
     model.load_state_dict(fusion_state, strict=False)
-
+    
+    model = freeze_encoders(model)
     return model
 
 
 
 def load_default_FusionVLM(checkpoint_name: str):
-    return load_FusionVLM(checkpoint_name=checkpoint_name,
+    model = load_FusionVLM(checkpoint_name=checkpoint_name,
                           save_dir=VLM_CHECKPOINT_DIR,
                           vision_encoder_name=CLIP_MODEL_NAME,
                           text_encoder_name=T5_MODEL_NAME,
                           text_decoder_name=T5_MODEL_NAME,
-                          lora_config=T5_DECODER_LORA_CONFIG
                           )
+    return model

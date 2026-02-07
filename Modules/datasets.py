@@ -273,7 +273,8 @@ class VLMDataset(Dataset):
         retrieved_image = self._load_image(retrieved_image_name, self.ref_image_dir)
         
         context = self._build_context(idx)
-        target_caption = max(img_data["captions"], key=len) # Target caption (longest one)
+        # target_caption = max(img_data["captions"], key=len) # Target caption (longest one)
+        target_caption = random.choice(img_data['captions']) # Target caption (random)
         
         return {
             "query_image": query_image,
