@@ -18,15 +18,12 @@ from transformers.modeling_outputs import BaseModelOutput
 
 from peft import LoraConfig, get_peft_model, PeftModel, get_peft_model_state_dict 
 from pathlib import Path
+import warnings
 import os 
 
 from Modules.config import (CLIP_MODEL_NAME, T5_MODEL_NAME, FUSION_BLOCKS, FUSION_DIM,
                             FUSION_HEADS, T5_DECODER_LORA_CONFIG, T5_ENCODER_LORA_CONFIG,
                             CLIP_LORA_CONFIG, VLM_CHECKPOINT_DIR)
-# from torch.utils.data import DataLoader
-# from Modules.retrieval_module import Retriever
-# from Modules.FusionVLM import FusionVLM
-# from Modules.datasets import VLMDataset, VLMDataCollator
 
 
 class FusionBlock(nn.Module):
@@ -282,17 +279,19 @@ def apply_lora_config(fusionVLM: FusionVLM, T5_decoder_config=T5_DECODER_LORA_CO
     
     # fusionVLM.vision_encoder = get_peft_model(fusionVLM.vision_encoder, vision_encoder_config)
     # fusionVLM.text_encoder = get_peft_model(fusionVLM.text_encoder, T5_encoder_config)
-    fusionVLM.text_decoder = get_peft_model(fusionVLM.text_decoder, T5_decoder_config)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        fusionVLM.text_decoder = get_peft_model(fusionVLM.text_decoder, T5_decoder_config)
     
     return fusionVLM
 
 
-def create_default_FusionVLM():
+def create_default_FusionVLM(use_local_files=False):
     model = FusionVLM(vision_encoder_name=CLIP_MODEL_NAME,
                     text_encoder_name=T5_MODEL_NAME,
                     T5_text_decoder_name=T5_MODEL_NAME,
                     num_fusion_blocks=FUSION_BLOCKS,
-                    use_local_files=True
+                    use_local_files=use_local_files
                     )
     
     model = freeze_encoders(model)
@@ -319,7 +318,7 @@ def save_FusionVLM(model: FusionVLM, checkpoint_name: str, save_dir=VLM_CHECKPOI
 
 def load_FusionVLM(checkpoint_name: str, save_dir: str, vision_encoder_name: str,
                    text_encoder_name: str, text_decoder_name: str,
-                   num_fusion_blocks=FUSION_BLOCKS, use_local_files=True):
+                   num_fusion_blocks=FUSION_BLOCKS, use_local_files=False):
     
     save_dir = Path(save_dir)
 
@@ -345,11 +344,13 @@ def load_FusionVLM(checkpoint_name: str, save_dir: str, vision_encoder_name: str
     #     is_trainable=True
     # )
     
-    model.text_decoder = PeftModel.from_pretrained(
-        model.text_decoder, 
-        save_dir / checkpoint_name / "lora_text_decoder",
-        is_trainable=True
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        model.text_decoder = PeftModel.from_pretrained(
+            model.text_decoder, 
+            save_dir / checkpoint_name / "lora_text_decoder",
+            is_trainable=True
+        )
 
     # Load fusion block weights
     fusion_state = torch.load(save_dir / checkpoint_name / 'fusion.pt', map_location="cpu")
@@ -360,11 +361,12 @@ def load_FusionVLM(checkpoint_name: str, save_dir: str, vision_encoder_name: str
 
 
 
-def load_default_FusionVLM(checkpoint_name: str):
+def load_default_FusionVLM(checkpoint_name: str, use_local_files=False):
     model = load_FusionVLM(checkpoint_name=checkpoint_name,
                           save_dir=VLM_CHECKPOINT_DIR,
                           vision_encoder_name=CLIP_MODEL_NAME,
                           text_encoder_name=T5_MODEL_NAME,
                           text_decoder_name=T5_MODEL_NAME,
+                          use_local_files=use_local_files
                           )
     return model

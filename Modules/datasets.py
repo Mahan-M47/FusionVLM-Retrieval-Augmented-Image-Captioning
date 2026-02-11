@@ -12,10 +12,9 @@ from pathlib import Path
 
 
 # ===============================================================
-# Flickr30K Dataset for CLIP (Image + Captions)
+# Flickr30K Dataset (Image + Captions)
 # ===============================================================
-
-class CLIPImageDataset(Dataset):
+class Flickr30kDataset(Dataset):
     """
     Dataset notes:
     - Images are named as integers with .jpg extension (e.g. 14121.jpg)
@@ -44,7 +43,6 @@ class CLIPImageDataset(Dataset):
     def __len__(self):
         return len(self.image_names)
     
-    
 class CLIPImageDataCollator:
     def __init__(self, processor, device="cuda"):
         self.processor = processor
@@ -67,9 +65,9 @@ class CLIPImageDataCollator:
         }
 
 # ===============================================================
-# Flickr30K Dataset for CLIP (Captions only)
+# Flickr30K Dataset (Captions only)
 # ===============================================================
-class CLIPCaptionDataset(Dataset):
+class Flickr30kCaptionDataset(Dataset):
     def __init__(self, captions_dir:str):
         self.df = pd.read_csv(captions_dir)
 
@@ -83,7 +81,6 @@ class CLIPCaptionDataset(Dataset):
         
     def __len__(self):
         return len(self.df)
-    
     
 class CLIPCaptionDataCollator:
     def __init__(self, tokenizer, device="cuda"):
@@ -107,6 +104,130 @@ class CLIPCaptionDataCollator:
             "image_names": image_names,
             "captions": captions,
         }
+
+# ===============================================================
+# Flickr30K Dataset for FusionVLM
+# ===============================================================
+class Flickr30kVLMDataset(Dataset):
+    def __init__(self, image_dir, ref_image_dir, retriever, reference_retriever=None,
+                 num_similar_captions=3, label_prompt="A picture of "):
+
+        self.image_base_dir = Path(image_dir)
+        self.ref_image_dir = Path(ref_image_dir)
+        
+        self.retriever = retriever
+        if reference_retriever:
+            self.reference_retriever = reference_retriever
+        else:
+            self.reference_retriever = retriever
+        
+        self.label_prompt = label_prompt
+        self.num_similar_captions = num_similar_captions
+
+        # with open(metadata_path, "r", encoding="utf-8") as f:
+        #     self.metadata = json.load(f)
+
+    def __len__(self):
+        # return len(self.metadata)
+        return len(self.retriever)
+
+
+    def _load_image(self, image_name, base_path):
+        path = base_path / image_name
+        image = Image.open(path).convert("RGB")
+        return image
+    
+
+    def _build_context(self, similar_captions):
+        k = min(len(similar_captions),  self.num_similar_captions)
+        context = ' '.join(similar_captions[:k])
+        return f"Similar images are described as: \n {context}"
+
+
+    def __getitem__(self, idx):
+        # img_data = self.metadata[str(idx)]
+        img_data = self.retriever.retrieve_from_metadata(idx)
+        query_image = self._load_image(img_data.get("image_name"), self.image_base_dir)
+        
+        retrieved_idx = img_data.get("similar_images")[0]
+        # retrieved_image_name = self.retriever.retrieve_from_metadata(retrieved_idx, key='image_name')
+        retrieved_image_name = self.reference_retriever.retrieve_from_metadata(retrieved_idx, key='image_name')
+        retrieved_image = self._load_image(retrieved_image_name, self.ref_image_dir)
+        
+        context = self._build_context(img_data.get("similar_captions"))
+        # target_caption = max(img_data["captions"], key=len) # Target caption (longest one)
+        target_caption = random.choice(img_data.get('captions')) # Target caption (random)
+        
+        return {
+            "query_image": query_image,
+            "retrieved_image": retrieved_image,
+            "context": context,
+            "target_caption": self.label_prompt + target_caption,
+            "all_captions": [self.label_prompt + caption for caption in img_data.get("captions")]
+            # "all_captions": img_data["captions"]
+        }
+
+class VLMDataCollator:
+    def __init__(self, processor, tokenizer, label_tokenizer=None, max_seq_len=128, device="cuda"):
+        self.processor = processor
+        self.tokenizer = tokenizer
+        
+        self.label_tokenizer = label_tokenizer
+        if not self.label_tokenizer:
+            self.label_tokenizer = tokenizer
+            
+        self.max_seq_len = max_seq_len
+        self.device = device
+
+    def __call__(self, batch):
+        query_images = [b.get("query_image") for b in batch]
+        retrieved_images = [b.get("retrieved_image") for b in batch]
+        context = [b.get("context") for b in batch]
+        targets = [b.get("target_caption") for b in batch]
+        all_captions = [b.get("all_captions") for b in batch]
+
+        # Process Images
+        pixel_values = self.processor(
+            images=query_images,
+            return_tensors="pt"
+        ).pixel_values
+
+        retrieved_pixel_values = self.processor(
+            images=retrieved_images,
+            return_tensors="pt"
+        ).pixel_values
+
+        # Process text prompts
+        inputs = self.tokenizer(
+            context,
+            padding="longest",
+            padding_side='right',
+            truncation=True,
+            max_length=self.max_seq_len,
+            return_tensors="pt"
+        )
+
+        labels = self.label_tokenizer(
+            targets,
+            padding="longest",
+            padding_side='right',
+            truncation=True,
+            max_length=self.max_seq_len,
+            return_tensors="pt"
+        ).input_ids
+        
+        # ignore padding tokens in loss
+        labels[labels == self.tokenizer.pad_token_id] = -100
+
+        return {
+            "query_pixel_values": pixel_values.to(self.device),
+            "retrieved_pixel_values": retrieved_pixel_values.to(self.device),
+            "input_ids": inputs.input_ids.to(self.device),
+            "attention_mask": inputs.attention_mask.to(self.device),
+            "labels": labels.to(self.device),
+            "all_captions": all_captions
+        }
+
   
 # ===============================================================
 # Flickr30K Dataset for BLIP (Fine-tune with RAG)
@@ -189,7 +310,6 @@ class BlipRAGDataset(Dataset):
             "target_caption": target_caption,
         }
 
-
 class BlipDataCollator:
     def __init__(self, processor, max_seq_len=128, device="cuda"):
         self.processor = processor
@@ -228,121 +348,22 @@ class BlipDataCollator:
         # return {k: v.to(self.device) for k, v in inputs.items()}
         return {k: v for k, v in inputs.items()}
 
-
-# ===============================================================
-# Flickr30K Dataset for FusionVLM
-# ===============================================================
-class VLMDataset(Dataset):
-    def __init__(self, image_dir, ref_image_dir, metadata_path, retriever,
-                 num_similar_captions=3, label_prompt="A picture of "):
-
-        self.image_base_dir = Path(image_dir)
-        self.ref_image_dir = Path(ref_image_dir)
-        
-        self.retriever = retriever
-        
-        self.label_prompt = label_prompt
-        self.num_similar_captions = num_similar_captions
-
-        with open(metadata_path, "r", encoding="utf-8") as f:
-            self.metadata = json.load(f)
-
-    def __len__(self):
-        return len(self.metadata)
-
-
-    def _load_image(self, image_name, base_path):
-        path = base_path / image_name
-        image = Image.open(path).convert("RGB")
-        return image
-    
-
-    def _build_context(self, idx):
-        captions = self.retriever.retrieve_from_metadata(idx, key='similar_captions')
-        k = min(len(captions),  self.num_similar_captions)
-        context = ' '.join(captions[:k])
-        return f"Similar images are described as: \n {context}"
-
-
-    def __getitem__(self, idx):
-        img_data = self.metadata[str(idx)]
-        query_image = self._load_image(img_data["image_name"], self.image_base_dir)
-        
-        retrieved_idx = img_data["similar_images"][0]
-        retrieved_image_name = self.retriever.retrieve_from_metadata(retrieved_idx, key='image_name')
-        retrieved_image = self._load_image(retrieved_image_name, self.ref_image_dir)
-        
-        context = self._build_context(idx)
-        # target_caption = max(img_data["captions"], key=len) # Target caption (longest one)
-        target_caption = random.choice(img_data['captions']) # Target caption (random)
-        
-        return {
-            "query_image": query_image,
-            "retrieved_image": retrieved_image,
-            "context": context,
-            "target_caption": self.label_prompt + target_caption,
-            "all_captions": [self.label_prompt + caption for caption in img_data["captions"]]
-            # "all_captions": img_data["captions"]
-        }
-
-
-class VLMDataCollator:
-    def __init__(self, processor, tokenizer, label_tokenizer=None, max_seq_len=128, device="cuda"):
+class BLIPImageDataCollator:
+    def __init__(self, processor, device="cuda"):
         self.processor = processor
-        self.tokenizer = tokenizer
-        
-        self.label_tokenizer = label_tokenizer
-        if not self.label_tokenizer:
-            self.label_tokenizer = tokenizer
-            
-        self.max_seq_len = max_seq_len
         self.device = device
 
     def __call__(self, batch):
         query_images = [b.get("query_image") for b in batch]
-        retrieved_images = [b.get("retrieved_image") for b in batch]
-        prompts = [b.get("context") for b in batch]
-        targets = [b.get("target_caption") for b in batch]
         all_captions = [b.get("all_captions") for b in batch]
-
-        # Process Images
+        
         pixel_values = self.processor(
             images=query_images,
             return_tensors="pt"
         ).pixel_values
-
-        retrieved_pixel_values = self.processor(
-            images=retrieved_images,
-            return_tensors="pt"
-        ).pixel_values
-
-        # Process text prompts
-        inputs = self.tokenizer(
-            prompts,
-            padding="longest",
-            padding_side='right',
-            truncation=True,
-            max_length=self.max_seq_len,
-            return_tensors="pt"
-        )
-
-        labels = self.label_tokenizer(
-            targets,
-            padding="longest",
-            padding_side='right',
-            truncation=True,
-            max_length=self.max_seq_len,
-            return_tensors="pt"
-        ).input_ids
         
-        # ignore padding tokens in loss
-        labels[labels == self.tokenizer.pad_token_id] = -100
-
         return {
             "query_pixel_values": pixel_values.to(self.device),
-            "retrieved_pixel_values": retrieved_pixel_values.to(self.device),
-            "input_ids": inputs.input_ids.to(self.device),
-            "attention_mask": inputs.attention_mask.to(self.device),
-            "labels": labels.to(self.device),
             "all_captions": all_captions
         }
+

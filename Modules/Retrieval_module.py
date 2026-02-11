@@ -51,7 +51,7 @@ class Retriever():
             if torch.is_tensor(idx):
                 idx = idx.cpu().tolist()
 
-            if isinstance(idx, (list, tuple, np.ndarray)):
+            if isinstance(idx, (list, tuple, np.ndarray)):  # idx is a 1D list
                 return [_get_item(i) for i in idx]
             else:
                 return _get_item(idx)
@@ -92,4 +92,10 @@ class Retriever():
             return self.metadata.keys()
         else:
             raise Exception("Metadata index not initialized. Use set_metadata().")
+        
+    def __len__(self):
+        if self.metadata:
+            return len(self.metadata)
+        else:
+            return 0
     

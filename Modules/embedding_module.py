@@ -3,9 +3,10 @@ from transformers import CLIPProcessor, CLIPModel, CLIPImageProcessorFast, CLIPT
 import torch
 import numpy as np
 
+from Modules.config import CLIP_MODEL_NAME
 
 class Embedder:
-    def __init__(self, model_name="openai/clip-vit-base-patch32", use_local_files=False, device='cuda'):
+    def __init__(self, model_name=CLIP_MODEL_NAME, use_local_files=False, device='cuda'):
         self.model_name = model_name
         self.device = device
 
@@ -23,7 +24,7 @@ class Embedder:
         if len(pixel_values.shape) == 3:
             pixel_values = pixel_values.unsqueeze(0)
         
-        pixel_values.to(self.device)
+        pixel_values = pixel_values.to(self.device)
         with torch.no_grad():
             embeddings = self.CLIP_model.get_image_features(pixel_values)
             embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)

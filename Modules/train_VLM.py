@@ -80,12 +80,13 @@ def train_epoch(model, loader, optimizer, epoch):
     return epoch_loss
 
 
-def train_and_evaluate_model(model, train_loader, optimizer, num_epochs, val_loader=None, tokenizer=None, save_interval=5):    
+def train_and_evaluate_model(model, train_loader, optimizer, num_epochs, val_loader=None, tokenizer=None,
+                             save_interval=5, start_epoch=0):    
     history = {'train_loss': [],
                'val_loss': []
     }
     
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, start_epoch + num_epochs):
         epoch_loss = train_epoch(model, train_loader, optimizer, epoch)
         history['train_loss'].append(epoch_loss)
 
