@@ -8,6 +8,19 @@
 **FusionVLM** is a vision-language model for image captioning that integrates **Multimodal Retrieval** with a custom **Bidirectional Fusion Block** architecture. Instead of relying solely on learned parameters, it retrieves visually or semantically similar images and captions from a dataset to improve caption quality, reduce hallucinations, and enhance generalization.
 
 
+## Table of Contents
+
+- [Key Features](#-key-features)
+- [Model Architecture](#-model-architecture)
+- [Dataset](#-dataset)
+- [Requirements](#-requirements)
+- [Usage](#-usage)
+- [Results & Samples](#️-results--samples)
+- [References](#-references)
+- [License](#-license)
+
+
+
 ## 📌 Key Features
 
 - **Retrieval-Augmented Generation**: Retrieves similar images and captions from a FAISS vector database to ground the captioning process.
@@ -118,7 +131,7 @@ During **Training**, the retrieved results are cached for efficiency, while duri
 </p>
 
 <p align="center">
-  <img height=220 src="media/faiss_retrieved_images2.jpg" >
+  <img height=225 src="media/faiss_retrieved_images2.jpg" >
 </p>
 
 
