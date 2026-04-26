@@ -54,8 +54,8 @@
 ├── 04-FusionVLM.ipynb                 # Train FusionVLM
 ├── 05-Inference_and_evaluation.ipynb  # Inference & comparison with BLIP
 ├── app.py                             # Script to run inference via CLI
-├── faiss_indexes.faiss                # Stored FAISS vector databases (created after running the notebooks)
-├── metadata.json                      # Stored JSON metadata files (created after running the notebooks)
+├── faiss_indexes.faiss                # FAISS vector databases (created after running the notebooks)
+├── metadata.json                      # JSON metadata files (created after running the notebooks)
 └── requirements.txt                   # A list of required libraries for running the project
 ```
 
@@ -66,7 +66,7 @@ The Architecture of the Custom Vision-Language Model:
 (Diagram created using the free online tool [app.diagrams.net](https://app.diagrams.net))
 
 <p align="center">
-  <img height=250 src="media/FusionVLM.jpg" >
+  <img height=260 src="media/FusionVLM.jpg" >
 </p>
 
 FusionVLM consists of seven main components:
@@ -197,7 +197,7 @@ with the default training configuration (Can be changed in `config.py` or `Fusio
 Or you can skip training by downloading the FusionVLM model weights after 20 epochs of training. The checkpoint includes the trained fusion blocks, LoRA-adapted T5 decoder layers, and all projection layers. The CLIP vision encoder and T5 text encoder weights are frozen and not included in the checkpoint (they are loaded from their respective pretrained models)
 
 Download the model checkpoint from Google Drive:
-**[FusionVLM - Trained Weights (20 epochs)](https://drive.google.com/your-link-here)**
+**[FusionVLM - Trained Weights (20 epochs)](https://drive.google.com/TBA)**  (TBA)
 
 Place the model weights in the `FusionVLM/` directory before running inference.
 
