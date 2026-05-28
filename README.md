@@ -197,7 +197,7 @@ with the default training configuration (Can be changed in `config.py` or `Fusio
 Or you can skip training by downloading the FusionVLM model weights after 20 epochs of training. The checkpoint includes the trained fusion blocks, LoRA-adapted T5 decoder layers, and all projection layers. The CLIP vision encoder and T5 text encoder weights are frozen and not included in the checkpoint (they are loaded from their respective pretrained models)
 
 Download the model checkpoint from Google Drive:
-**[FusionVLM - Trained Weights (20 epochs)]([https://drive.google.com/TBA](https://drive.google.com/file/d/18yg9kg3AwUzKlUzNZGAlOdBeVvyBka44/view?usp=sharing))** 
+**[FusionVLM - Trained Weights (20 epochs)](https://drive.google.com/file/d/18yg9kg3AwUzKlUzNZGAlOdBeVvyBka44/view?usp=sharing)**
 
 Place the model weights in the `FusionVLM/` directory before running inference.
 
